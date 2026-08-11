@@ -75,7 +75,10 @@ class AssertingWeight extends FilterWeight {
         boolean canSetMinCompetitiveScore =
             scoreMode == ScoreMode.TOP_SCORES && topLevelScoringClause;
         return AssertingScorer.wrap(
-            inScorerSupplier.get(leadCost), canScore, canSetMinCompetitiveScore);
+            new Random(random.nextLong()),
+            inScorerSupplier.get(leadCost),
+            canScore,
+            canSetMinCompetitiveScore);
       }
 
       @Override

@@ -19,6 +19,7 @@ package org.apache.lucene.tests.search;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Random;
 import org.apache.lucene.search.DocAndFloatFeatureBuffer;
 import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.search.FilterDocIdSetIterator;
@@ -47,13 +48,20 @@ public class AssertingScorer extends Scorer {
    *     typically true if the score mode is TOP_SCORES and this scorer is the top-level scoring
    *     clause
    */
-  public static Scorer wrap(Scorer other, boolean canScore, boolean canSetMinCompetitiveScore) {
+  public static Scorer wrap(
+      Random random, Scorer other, boolean canScore, boolean canSetMinCompetitiveScore) {
     if (other == null) {
       return null;
     }
-    return new AssertingScorer(other, canScore, canSetMinCompetitiveScore);
+    return new AssertingScorer(random, other, canScore, canSetMinCompetitiveScore);
   }
 
+  /** Convenience overload that creates a non-deterministic Random. */
+  public static Scorer wrap(Scorer other, boolean canScore, boolean canSetMinCompetitiveScore) {
+    return wrap(new Random(), other, canScore, canSetMinCompetitiveScore);
+  }
+
+  final Random random;
   final Scorer in;
   final boolean canScore;
   final boolean canSetMinCompetitiveScore;
@@ -63,7 +71,9 @@ public class AssertingScorer extends Scorer {
   float minCompetitiveScore = 0;
   int lastShallowTarget = -1;
 
-  private AssertingScorer(Scorer in, boolean canScore, boolean canSetMinCompetitiveScore) {
+  private AssertingScorer(
+      Random random, Scorer in, boolean canScore, boolean canSetMinCompetitiveScore) {
+    this.random = random;
     this.in = in;
     this.canScore = canScore;
     this.canSetMinCompetitiveScore = canSetMinCompetitiveScore;
@@ -276,6 +286,23 @@ public class AssertingScorer extends Scorer {
         assert !Float.isNaN(matchCost);
         assert matchCost >= 0;
         return matchCost;
+      }
+
+      @Override
+      public int docIDRunEnd() throws IOException {
+        assert state == IteratorState.APPROXIMATING || state == IteratorState.ITERATING : state;
+        int runEnd = in.docIDRunEnd();
+        // The real run end must be >= approximation().docID() (the conservative default).
+        assert runEnd >= inApproximation.docID()
+            : "docIDRunEnd() "
+                + runEnd
+                + " < approximation docID "
+                + inApproximation.docID();
+        // Randomly choose between the real value and the conservative default.
+        // The real value exercises DenseConjunctionBulkScorer's collectRange fast path;
+        // the conservative default exercises the per-doc confirmation (bitset/leapfrog) path.
+        // Randomizing ensures both paths are covered across seeds.
+        return random.nextBoolean() ? runEnd : inApproximation.docID();
       }
 
       @Override
